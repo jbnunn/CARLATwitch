@@ -3,26 +3,55 @@ import carla
 import random
 import time
 
-blueprint_library = world.get_blueprint_library()
-
 class Simulation:
 
-    def __init__(self, world):
+    def __init__(self, world, num_vehicles):
         self.world = world
+        self.blueprint_library = world.get_blueprint_library()
+        self.actors = []
+        self.num_vehicles = num_vehicles
 
-    def spawn_vehicle(self, vehicle_type=None, spawn_point=None):
-        if vehicle_type is not None:
-            vehicle_blueprint = blueprint_library.filter(vehicle_type)
-        else:
-            vehicle_blueprint = random.choice(blueprint_library.filter('vehicle'))
+class Vehicle:
+
+    def __init__(self, simulation, filter='vehicle', spawn_point=None):
+        self.filter = filter
+        self.spawn_point = None
+
+    def spawn(self):
+        vehicle_blueprint = random.choice(simulation.blueprint_library.filter(filter))
 
         if spawn_point is not None:
             pass
             # Implement dynamic spawn_point later
         else:
-            spawn_point = random.choice(self.world.get_map().get_spawn_points())
+            spawn_point = random.choice(simulation.world.get_map().get_spawn_points())
+        
+        try:
+            vehicle = self.world.spawn_actor(vehicle_blueprint, spawn_point)
+        except:
+            # Use try_spawn_actor. If the spot is already occupied by another object, 
+            # the function will return None.
+            vehicle = self.world.try_spawn_actor(vehicle_blueprint, spawn_point)
 
-        self.world.spawn_actor(vehicle_blueprint, spawn_point)
+        if vehicle:
+            simulation.actors.append(vehicle)
+            print(f'Spawned vehicle: {vehicle.type_id)')
+
+        return vehicle
+    
+    def attach_camera(self, camera_type='rgb'):
+        camera = None
+
+        if camera_type == 'rgb':
+            camera_bp = blueprint_library.find('sensor.camera.rgb')
+            camera_transform = carla.Transform(carla.Location(x=1.5, z=2.4))
+            camera = world.spawn_actor(camera_bp, camera_transform, attach_to=self)
+
+            simulation.actors.append(camera)
+
+        print(f'Attached {camera_type} camera')
+
+        return camera  
 
 def main():
     actor_list = []
@@ -34,19 +63,33 @@ def main():
     # Retrieve the world
     world = client.get_world()
 
-    # Get a vehicle blueprint
-    vehicle_blueprint = get_vehicle_blueprint('model3')
+    # Setup the Simulation
+    simulation = Simulation(world)
+
+    # Spawn a Tesla
+    tesla = Vehicle(simulation, filter='vehicle.tesla.model3')
+    tesla.spawn()
+    tesla.set_autopilot()
+
+    # Attach an RGB camera
+    camera = tesla.attach_camera('rbg')
+
+    # Register a callback to save images to disk (TBD: analyze in real time)
+    cc = carla.ColorConverter.LogarithmicDepth
+    camera.listen(lambda image: image.save_to_disk('_out/%06d.png' % image.frame_number, cc))
+
+    #  Spawn NPC vehicles
+    for i in range(simulation.num_vehicles):
+        v = Vehicle(simulation)
+        if v is not not None:
+            v.set_autopilot()
+        
     
-    # Grab a random spawn point to drop the vehicle into
-    spawn_point = random.choice(world.get_map().get_spawn_points())
-    
-    # Spawn the vehicle into the world
-    vehicle = world.spawn_actor(vehicle_blueprint, spawn_point)
-
-    # 
 
 
-    print(blueprint_library)
+
+
+
 
 if __name__ == "__main__":
     main()
